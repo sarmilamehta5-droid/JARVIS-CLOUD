@@ -104,7 +104,7 @@ def build_process(prompt):
         
         response = client.chat.completions.create(
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             max_tokens=4000
         )
         
