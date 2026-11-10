@@ -1,81 +1,72 @@
 import os
 import time
-import threading
 from flask import Flask, request, jsonify, render_template_string
-from groq import Groq
 
 app = Flask(__name__)
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# Global variables to track progress
-progress_data = {"percent": 0, "status": "Idle", "game_html": ""}
+# Global Memory for current job
+job = {"status": "Idle", "progress": 0, "log": "Waiting for command...", "result": ""}
 
 HTML_UI = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>J.A.R.V.I.S. MOBILE</title>
+    <title>JARVIS MOBILE STUDIO</title>
     <style>
-        body { background-color: #0a0a0a; color: #00ffff; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; }
-        h1 { text-shadow: 0 0 10px #00ffff; font-size: 24px; }
-        input { width: 90%; padding: 12px; margin: 10px 0; background: #111; border: 1px solid #00ffff; color: #00ffff; border-radius: 5px; font-size: 16px; }
-        button { padding: 12px 20px; background: #00ffff; color: #000; font-weight: bold; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        body { background: #0a0a0a; color: #00ffff; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; }
+        h1 { text-shadow: 0 0 10px #00ffff; }
+        input { width: 90%; padding: 15px; margin: 10px 0; background: #111; border: 1px solid #00ffff; color: #00ffff; border-radius: 5px; font-size: 16px; }
+        .btn-group { display: flex; justify-content: center; gap: 10px; }
+        button { padding: 15px; background: #00ffff; color: #000; font-weight: bold; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; flex: 1; max-width: 150px;}
         button:disabled { background: #333; color: #666; }
-        .progress-container { width: 90%; background: #222; border: 1px solid #00ffff; border-radius: 10px; margin: 20px auto; overflow: hidden; height: 20px; }
-        .progress-bar { width: 0%; height: 100%; background: #00ffff; transition: width 0.5s; }
-        #log { text-align: left; background: #050505; padding: 10px; border: 1px solid #333; height: 100px; overflow-y: auto; font-size: 12px; width: 90%; margin: 0 auto; }
-        #game-container { display: none; width: 100%; height: 70vh; border: 2px solid #00ffff; margin-top: 20px; }
-        iframe { width: 100%; height: 100%; border: none; }
+        .progress-container { width: 90%; background: #222; border: 1px solid #00ffff; border-radius: 10px; margin: 20px auto; overflow: hidden; height: 25px; }
+        .progress-bar { width: 0%; height: 100%; background: #00ffff; transition: width 0.5s; text-align: center; color: #000; font-weight: bold; line-height: 25px; font-size: 14px;}
+        #log { text-align: left; background: #050505; padding: 15px; border: 1px solid #333; height: 200px; overflow-y: auto; font-size: 14px; width: 85%; margin: 0 auto; white-space: pre-wrap; }
     </style>
 </head>
 <body>
-    <h1>J.A.R.V.I.S.</h1>
-    <p>Mobile Command Center</p>
+    <h1>J.A.R.V.I.S. STUDIO</h1>
+    <p>Remote Game Builder</p>
     
     <input type="text" id="prompt" placeholder="Example: Make a 3D Dino game">
-    <br>
-    <button id="buildBtn" onclick="buildGame()">BUILD GAME</button>
-    
-    <div class="progress-container"><div class="progress-bar" id="progress"></div></div>
-    <p id="status">Status: Idle</p>
-    
-    <div id="log"></div>
-
-    <div id="game-container">
-        <iframe id="game-iframe"></iframe>
+    <div class="btn-group">
+        <button id="btnAuto" onclick="startJob('auto')">AUTO BUILD</button>
+        <button id="btnManual" onclick="startJob('manual')">MANUAL</button>
     </div>
+    
+    <div class="progress-container"><div class="progress-bar" id="progress">0%</div></div>
+    <div id="log">Status: Idle</div>
 
     <script>
-        function buildGame() {
+        function startJob(mode) {
             const prompt = document.getElementById('prompt').value;
-            if(!prompt) return alert("Enter a prompt!");
+            if(!prompt) return alert("Enter a game idea first!");
             
-            document.getElementById('buildBtn').disabled = true;
-            document.getElementById('game-container').style.display = 'none';
-            document.getElementById('log').innerHTML = "";
+            document.getElementById('btnAuto').disabled = true;
+            document.getElementById('btnManual').disabled = true;
             
-            fetch('/build', {
+            fetch('/start_job', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({prompt: prompt})
-            }).then(res => res.json()).then(data => {
+                body: JSON.stringify({prompt: prompt, mode: mode})
+            }).then(() => {
+                document.getElementById('log').innerText = "Sending command to Laptop...\n";
                 pollProgress();
             });
         }
 
         function pollProgress() {
-            fetch('/progress').then(res => res.json()).then(data => {
-                document.getElementById('progress').style.width = data.percent + '%';
-                document.getElementById('status').innerText = "Status: " + data.status;
+            fetch('/get_progress').then(res => res.json()).then(data => {
+                document.getElementById('progress').style.width = data.progress + '%';
+                document.getElementById('progress').innerText = data.progress + '%';
+                document.getElementById('log').innerText = "STATUS: " + data.status + "\\n\\nLOG:\\n" + data.log;
                 
-                if (data.percent < 100) {
-                    setTimeout(pollProgress, 1000);
+                if (data.progress < 100 && data.progress > 0) {
+                    setTimeout(pollProgress, 2000);
                 } else {
-                    document.getElementById('buildBtn').disabled = false;
-                    document.getElementById('game-container').style.display = 'block';
-                    document.getElementById('game-iframe').srcdoc = data.game_html;
+                    document.getElementById('btnAuto').disabled = false;
+                    document.getElementById('btnManual').disabled = false;
                 }
             });
         }
@@ -84,63 +75,42 @@ HTML_UI = """
 </html>
 """
 
-def build_process(prompt):
-    global progress_data
-    try:
-        progress_data["percent"] = 10
-        progress_data["status"] = "Analyzing Request..."
-        time.sleep(2)
-        
-        progress_data["percent"] = 30
-        progress_data["status"] = "Writing Game Code (AI)..."
-        
-        system_prompt = """You are J.A.R.V.I.S. Write a complete, playable HTML/CSS/JS game using Three.js (CDN: https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js). 
-        Requirements: 
-        1. Single HTML file. 
-        2. Start Menu. 
-        3. No external models (use shapes). 
-        4. Add lights. 
-        Output ONLY the raw HTML code."""
-        
-        response = client.chat.completions.create(
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-            model="openai/gpt-oss-120b",
-            max_tokens=4000
-        )
-        
-        progress_data["percent"] = 80
-        progress_data["status"] = "Compiling Game..."
-        
-        raw_html = response.choices[0].message.content
-        # Extract HTML
-        if "```html" in raw_html:
-            raw_html = raw_html.split("```html")[1].split("```")[0]
-        elif "```" in raw_html:
-            raw_html = raw_html.split("```")[1].split("```")[0]
-            
-        progress_data["game_html"] = raw_html.strip()
-        progress_data["percent"] = 100
-        progress_data["status"] = "Game Built Successfully!"
-        
-    except Exception as e:
-        progress_data["status"] = f"Error: {str(e)}"
-        progress_data["percent"] = 0
-
 @app.route('/')
 def home():
     return render_template_string(HTML_UI)
 
-@app.route('/build', methods=['POST'])
-def build():
-    global progress_data
-    prompt = request.json.get('prompt')
-    progress_data = {"percent": 0, "status": "Starting...", "game_html": ""}
-    threading.Thread(target=build_process, args=(prompt,)).start()
-    return jsonify({"status": "started"})
+# Phone calls this to start
+@app.route('/start_job', methods=['POST'])
+def start_job():
+    global job
+    data = request.json
+    job = {"status": "Pending", "progress": 1, "log": f"Received {data['mode']} command: {data['prompt']}", "result": ""}
+    return jsonify({"status": "ok"})
 
-@app.route('/progress')
-def progress():
-    return jsonify(progress_data)
+# Laptop calls this to get the job
+@app.route('/get_job', methods=['GET'])
+def get_job():
+    global job
+    if job["status"] == "Pending":
+        job["status"] = "Running"
+        return jsonify({"prompt": job["log"].split(": ")[1], "mode": "auto"}) # Simplified for now
+    return jsonify({"prompt": ""})
+
+# Laptop calls this to update progress
+@app.route('/update_progress', methods=['POST'])
+def update_progress():
+    global job
+    data = request.json
+    job["progress"] = data.get("progress", job["progress"])
+    job["status"] = data.get("status", job["status"])
+    job["log"] = data.get("log", job["log"])
+    job["result"] = data.get("result", job["result"])
+    return jsonify({"status": "ok"})
+
+# Phone checks this
+@app.route('/get_progress', methods=['GET'])
+def get_progress():
+    return jsonify(job)
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
